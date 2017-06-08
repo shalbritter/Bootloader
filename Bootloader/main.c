@@ -6,6 +6,42 @@
  */ 
 
 //include//////////////////////////////////////////////////////////////////////////
+#include <stdint.h>
+#include <stdbool.h>
+
+//define///////////////////////////////////////////////////////////////////////////
+#define XOFF 0x13
+#define XON 0x11
+#define UART_BUFFER_LENGTH 16
+#define UART_BUFFER_MIN_EMPTY 4
+
+//UART////////////////////////////////////////////////////////////////////////////
+volatile char UART_in[UART_BUFFER_LENGTH] = {'\0'};
+volatile uint8_t UART_in_read = 0;
+volatile uint8_t UART_in_receive = 0;
+
+//UART Flags
+volatile uint8_t UART_Flags = 0x00;
+#define UART_RECEIVE_BLOCKED 0
+#define UART_SEND_BLOCKED 1
+#define UART_WRITING 2
+
+ISR(USART_RX_vect){		//TODO check what is necessary for getc
+	UART_in[UART_in_receive] = UDR0;
+
+	if (UART_in[UART_in_receive] == XOFF)
+	{
+		UART_Flags |= (1<<UART_SEND_BLOCKED);
+	} else if (UART_in[UART_in_receive] == XON)
+	{
+		UART_Flags &= ~(1<<UART_SEND_BLOCKED);
+	}
+	UART_in_receive = (UART_in_receive + 1) % UART_BUFFER_LENGTH;
+	if(((UART_in_receive + UART_BUFFER_LENGTH - UART_in_read) % UART_BUFFER_LENGTH ) < UART_BUFFER_MIN_EMPTY){ //Buffer almost full
+		//UART_Transmit_c(XOFF);	//TODO fix receive control
+		UART_Flags |= (1<<UART_RECEIVE_BLOCKED);
+	}
+}
 
 //prototypes///////////////////////////////////////////////////////////////////////
 uint16_t atoi_hex(const char *__s);
@@ -17,13 +53,33 @@ char* itoa(int __val, char *__s, int __radix);
 //main/////////////////////////////////////////////////////////////////////////////
 int main(void)
 {
-    /* Replace with your application code */
-    while (1) 
+	DDRD = 0x04;	//init button on PD2
+	PORTD = 0x04;
+	
+    initUART(103); //init UART to 9600 baud
+	UART_Transmit_c(XON);
+    
+	while (1) 
     {
     }
 }
 
 //functions////////////////////////////////////////////////////////////////////////
+void initUART(uint8_t ubbr){
+	UBRR0 = ubbr;
+	UCSR0B |= ((1<<RXEN0) | (1<<TXEN0));	//Enable TxD and RxD
+	UCSR0B |= ((1<<RXCIE0) | (1<<TXCIE0));	
+}   
+
+char UART_getc(){
+	char returnc = 0x00;
+	if(UART_in_read != UART_in_receive) {
+		returnc = UART_in[UART_in_read];
+		UART_in_read = (UART_in_read + 1) % UART_BUFFER_LENGTH;
+	}
+	return returnc;
+}
+
 uint16_t atoi_hex(const char *__s) {
 	uint16_t ret = 0;
 	while (*(__s+1))
@@ -62,7 +118,6 @@ char* reverse(char *__s, int __len) {
 	}
 	return __s;
 }
-
 
 char* itoa(int __val, char *__s, int __radix) {
 	int i = 0;
