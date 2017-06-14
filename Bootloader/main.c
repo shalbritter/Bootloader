@@ -2,12 +2,21 @@
  * Bootloader.c
  *
  * Created: 08.06.2017 12:45:00
- * Author : x10mi
+ * Author : lid32272
  */ 
+
+/* TODO
+ * linker -Ttext=ByteAdress
+ * set fuses
+ * 
+ */
 
 //include//////////////////////////////////////////////////////////////////////////
 #include <stdint.h>
 #include <stdbool.h>
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <avr/boot.h>
 
 //define///////////////////////////////////////////////////////////////////////////
 #define XOFF 0x13
@@ -37,10 +46,10 @@ ISR(USART_RX_vect){		//TODO check what is necessary for getc
 		UART_Flags &= ~(1<<UART_SEND_BLOCKED);
 	}
 	UART_in_receive = (UART_in_receive + 1) % UART_BUFFER_LENGTH;
-	if(((UART_in_receive + UART_BUFFER_LENGTH - UART_in_read) % UART_BUFFER_LENGTH ) < UART_BUFFER_MIN_EMPTY){ //Buffer almost full
-		//UART_Transmit_c(XOFF);	//TODO fix receive control
-		UART_Flags |= (1<<UART_RECEIVE_BLOCKED);
-	}
+	//if(((UART_in_receive + UART_BUFFER_LENGTH - UART_in_read) % UART_BUFFER_LENGTH ) < UART_BUFFER_MIN_EMPTY){ //Buffer almost full
+		putc(XOFF);	//TODO fix receive control
+		//UART_Flags |= (1<<UART_RECEIVE_BLOCKED);
+	//}
 }
 
 //prototypes///////////////////////////////////////////////////////////////////////
@@ -56,28 +65,72 @@ int main(void)
 	DDRD = 0x04;	//init button on PD2
 	PORTD = 0x04;
 	
-    initUART(103); //init UART to 9600 baud
-	UART_Transmit_c(XON);
-    
-	while (1) 
-    {
-    }
+	if(PIND & (1<< PIND2)){
+	
+		activate_interrupts();
+		initUART(103); //init UART to 9600 baud
+		putc(XON);
+		
+		//256 pages of 128 bytes
+		uint16_t page = 0;
+		while (page <= 256) {
+			uint8_t word[SPM_PAGESIZE] = {0};
+			
+			//TODO do bootloader stuff here
+			page++;
+		}
+	
+		deactivate_interrupts();
+		deinitUART();
+		DDRD = 0x00;	//deinit PD2
+		PORTD = 0x00;
+	}
+	//end boootloader
+	void (*start) ( void ) = 0x0000;
+	start();
 }
 
 //functions////////////////////////////////////////////////////////////////////////
+void activate_interrupts(){
+	uint8_t temp = MCUCR;
+	MCUCR = temp | (1<<IVCE);
+	MCUCR = temp | (1<<IVSEL);
+	sei();
+}
+
+void deactivate_interrupts(){
+	uint8_t temp = MCUCR;
+	MCUCR = temp | (1<<IVCE);
+	MCUCR = temp & ~(1<<IVSEL);
+	cli();
+}
+
 void initUART(uint8_t ubbr){
 	UBRR0 = ubbr;
 	UCSR0B |= ((1<<RXEN0) | (1<<TXEN0));	//Enable TxD and RxD
-	UCSR0B |= ((1<<RXCIE0) | (1<<TXCIE0));	
-}   
+	UCSR0B |= ((1<<RXCIE0) | (1<<TXCIE0));
+}
 
-char UART_getc(){
+void deinitUART(){	//reset to initial valuess
+	UBRR0 = 0x00;
+	UCSR0B = 0x00; 
+} 
+
+char getc(){
 	char returnc = 0x00;
 	if(UART_in_read != UART_in_receive) {
 		returnc = UART_in[UART_in_read];
 		UART_in_read = (UART_in_read + 1) % UART_BUFFER_LENGTH;
 	}
 	return returnc;
+}
+
+void putc(char data){
+	while(UART_Flags & (1<<UART_SEND_BLOCKED)) ;
+	while(UART_Flags & (1<<UART_WRITING))
+	;
+	UART_Flags |= (1<<UART_WRITING);
+	UDR0 = data;
 }
 
 uint16_t atoi_hex(const char *__s) {
