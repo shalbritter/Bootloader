@@ -52,33 +52,54 @@ ISR(USART_RX_vect){		//TODO check what is necessary for getc
 	//}
 }
 
+ISR(USART_TX_vect){
+	UART_Flags &= ~(1<<UART_WRITING);
+}
+
 //prototypes///////////////////////////////////////////////////////////////////////
+uint8_t get_byte();
+uint16_t get_word();
+uint16_t get_word_inv();
+void activate_interrupts();
+void deactivate_interrupts();
+void initUART(uint8_t ubbr);
+void deinitUART();
+char getc();
+void putc(char data);
 uint16_t atoi_hex(const char *__s);
 char* reverse(char *__s, int __len);
 char* itoa(int __val, char *__s, int __radix);
-
-
 
 //main/////////////////////////////////////////////////////////////////////////////
 int main(void)
 {
 	DDRD = 0x04;	//init button on PD2
 	PORTD = 0x04;
+	DDRB = 0x01;
+	PORTB = 0x01;
 	
-	if(PIND & (1<< PIND2)){
+	if(!(PIND & (1<<PIND2))){	//start bootloader if button is pressed
 	
 		activate_interrupts();
 		initUART(103); //init UART to 9600 baud
 		putc(XON);
+	
+		//red light on during bootloading
+		PORTB = 0x00;
 		
 		//256 pages of 128 bytes
 		uint16_t page = 0;
 		while (page <= 256) {
 			uint8_t word[SPM_PAGESIZE] = {0};
-			
+			char __c = getc();
+			if(__c == ':'){	//new line
+				uint8_t length = get_word();
+			}
 			//TODO do bootloader stuff here
 			page++;
 		}
+		
+		
 	
 		deactivate_interrupts();
 		deinitUART();
@@ -91,6 +112,22 @@ int main(void)
 }
 
 //functions////////////////////////////////////////////////////////////////////////
+uint8_t get_byte(){
+	char byte_c[2];
+	byte_c[0] = getc();
+	byte_c[1] = getc();
+	return atoi_hex(byte_c);
+}
+
+uint16_t get_word(){
+	return 0x10 * get_byte() + get_byte();
+}
+
+uint16_t get_word_inv(){
+	uint8_t temp = get_byte();
+	return 0x10 * get_byte() + temp;
+}
+
 void activate_interrupts(){
 	uint8_t temp = MCUCR;
 	MCUCR = temp | (1<<IVCE);
